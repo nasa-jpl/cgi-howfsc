@@ -2,4 +2,4 @@
 # ALL RIGHTS RESERVED. United States Government Sponsorship acknowledged.
 # Any commercial use must be negotiated with the Office of Technology Transfer
 # at the California Institute of Technology.
-__version__ = '2.11.0'
+__version__ = '2.12.0'
