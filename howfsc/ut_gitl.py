@@ -35,7 +35,11 @@ from howfsc.util.constrain_dm import ConstrainDMException
 from howfsc.util.actlimits import ActLimitException
 from howfsc.util.check import CheckException
 
-from .gitl import howfsc_computation, _main_howfsc_computation
+from .gitl import (
+    howfsc_computation,
+    _main_howfsc_computation,
+    efc_computation,
+)
 from .status_codes import status_codes
 
 # Keep logger spam out of unit test results
@@ -627,6 +631,157 @@ class TestHOWFSCComputation(unittest.TestCase):
         pass
 
 
+class TestEFCComputation(unittest.TestCase):
+    """
+    Tests for efc_computation().
+
+    Have to rely on functional test to make sure it's doing the right thing
+    """
+    def setUp(self):
+        # for small jac: 7x7 images, 4x4 DMs, nlam = 3
+        self.cfg = cfg
+        self.jac = jac
+        self.jtwj_map = jtwj_map
+
+        self.nlam = nlam
+        self.npix = npix
+        self.ndm = 1
+        self.nact = 4
+
+        rng = np.random.default_rng(5551212)
+        self.dm1v = 50 + rng.random((self.nact, self.nact))
+        self.dm2v = 50 + rng.random((self.nact, self.nact))
+
+        self.croplist = []
+        for _ in range(self.nlam):
+            for dummy in range(self.ndm):
+                self.croplist.append((0, 0, self.npix, self.npix))
+
+        self.cstrat = cstrat
+        self.iteration = 1
+
+    def test_success(self):
+        """Good inputs return without incident"""
+        efc_computation(self.dm1v, self.dm2v, self.cfg, self.jac,
+                        self.jtwj_map, self.cstrat, self.croplist,
+                        self.iteration)
+
+    def test_outputs(self):
+        """Outputs are as expected in shape/type"""
+        abs_dm1, abs_dm2, dh_cube, next_c, prev_c, beta, dmmultgain = \
+            efc_computation(
+            self.dm1v, self.dm2v, self.cfg, self.jac, self.jtwj_map,
+            self.cstrat, self.croplist, self.iteration)
+
+        self.assertTrue(abs_dm1.shape == (self.nact, self.nact))
+        self.assertTrue(abs_dm2.shape == (self.nact, self.nact))
+        self.assertTrue(dh_cube.shape == (nlam, npix, npix))
+        self.assertTrue(np.isscalar(next_c))
+        self.assertTrue(np.isscalar(prev_c))
+        self.assertTrue(np.isscalar(beta))
+        self.assertTrue(np.isscalar(dmmultgain))
+
+    def test_invalid_dm1_list(self):
+        """Invalid inputs caught as expected"""
+        N = self.ndm*self.nlam
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cfg, # wrong type
+                    [1]*N, [np.ones((self.npix,))]*N, # wrong inner type
+                    [np.ones((self.nact+1, self.nact+1))]*N, # wrong in size
+                    [np.ones((self.nact, self.nact))]*(N+1), # wrong out size
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    perr, self.dm2v, self.cfg, self.jac, self.jtwj_map,
+                    self.cstrat, self.croplist, self.iteration)
+
+    def test_invalid_dm2_list(self):
+        """Invalid inputs caught as expected"""
+        N = self.ndm*self.nlam
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cfg, # wrong type
+                    [1]*N, [np.ones((self.npix,))]*N, # wrong inner type
+                    [np.ones((self.nact+1, self.nact+1))]*N, # wrong in size
+                    [np.ones((self.nact, self.nact))]*(N+1), # wrong out size
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, perr, self.cfg, self.jac, self.jtwj_map,
+                    self.cstrat, self.croplist, self.iteration)
+
+    def test_invalid_cfg(self):
+        """Invalid inputs caught as expected"""
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cstrat, # wrong type
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, self.dm2v, perr, self.jac, self.jtwj_map,
+                    self.cstrat, self.croplist, self.iteration)
+
+    def test_invalid_jac(self):
+        """Invalid inputs caught as expected"""
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cfg, # wrong type
+                    np.ones((2,)), np.ones((self.nact, self.npix)), #wrong Ndim
+                    np.ones((1, self.nact, self.npix)), # wrong dim size
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, self.dm2v, self.cfg, perr, self.jtwj_map,
+                    self.cstrat, self.croplist, self.iteration)
+
+    def test_invalid_jtwj_map(self):
+        """Invalid inputs caught as expected"""
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cstrat, # wrong type
+                    np.eye(2*self.nact**2), # not a 2D ndm X ndm array
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, self.dm2v, self.cfg, self.jac, perr,
+                    self.cstrat, self.croplist, self.iteration)
+
+    def test_invalid_croplist(self):
+        """Invalid inputs caught as expected"""
+        N = self.ndm*self.nlam
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cfg, # wrong type
+                    [1]*N, [np.ones((self.npix,))]*N, # wrong inner type
+                    [(0, 0, self.npix, self.npix, 0)]*N, # wrong in size
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, self.dm2v, self.cfg, self.jac, self.jtwj_map,
+                    self.cstrat, perr, self.iteration)
+
+    def test_invalid_cstrat(self):
+        """Invalid inputs caught as expected"""
+        perrlist = [1, -1, 1.5, 0, 1j, 'txt', None, self.cfg, # wrong type
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, self.dm2v, self.cfg, self.jac, self.jtwj_map,
+                    perr, self.croplist, self.iteration)
+
+    def test_invalid_iteration(self):
+        """Invalid inputs caught as expected"""
+        perrlist = [-1, 1.5, 0, 1j, 'txt', None, self.cfg, # wrong type/value
+                    ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                efc_computation(
+                    self.dm1v, self.dm2v, self.cfg, self.jac, self.jtwj_map,
+                    self.cstrat, self.croplist, perr)
 
 
 if __name__ == '__main__':

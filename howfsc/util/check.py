@@ -333,3 +333,23 @@ def string(var, vname, vexc):
     if not isinstance(var, string_types):
         raise vexc(vname + ' must be a string')
     return var
+
+def boolean(var, vname, vexc):
+    """
+    Checks whether an object is a bool.
+
+    Arguments:
+     var: variable to check
+     vname: string to output in case of error for debugging
+     vexc: Exception to raise in case of error for debugging
+
+    Returns:
+     returns var
+
+    """
+    _checkname(vname)
+    _checkexc(vexc)
+
+    if not isinstance(var, bool):
+        raise vexc(vname + ' must be a bool')
+    return var

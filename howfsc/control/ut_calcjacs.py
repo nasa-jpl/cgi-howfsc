@@ -155,8 +155,9 @@ class TestCalcJacs(unittest.TestCase):
     @patch('howfsc.model.singlelambda.SingleLambda.proptolyot_nofpm')
     def test_epk0_zero(self, mock_epk0):
         """Test the pathological case where epk0 = 0."""
-        mock_epk0.return_value = 0
-        with self.assertRaises(CalcJacsException):
+        mock_epk0.return_value = np.zeros(self.cfg.sl_list[0].lyot.e.shape, dtype='complex128')
+        # ValueError should be triggered by ampthresh()
+        with self.assertRaises(ValueError):
             calcjacs_sp(self.cfg, [0])
 
     def test_invalid_config(self):

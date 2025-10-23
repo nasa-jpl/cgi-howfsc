@@ -21,3 +21,6 @@ jacdata/
 .installed.cfg
 *.egg
 *.json
+
+howfsc/scripts/output/**
+!howfsc/scripts/output/.imhere

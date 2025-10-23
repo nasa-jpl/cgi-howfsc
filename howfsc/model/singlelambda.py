@@ -6,11 +6,11 @@
 Class file for a single-wavelength coronagraph model and associated propagation
 functions.
 """
-
 from types import SimpleNamespace
 import logging
 import numpy as np
 
+from howfsc.util.ampthresh import ampthresh
 from howfsc.util.fresnelprop import do_fft, do_ifft, fresnelprop
 from howfsc.util.fresnelprop import get_fp, fresnelprop_fp
 from howfsc.util.insertinto import insertinto
@@ -19,9 +19,10 @@ from howfsc.util.dmhtoph import dmhtoph
 from howfsc.util.dmhtoph_jac import (
     dmhtoph_jac, dmhtoph_cropped_poke, compute_master_inf_func
 )
-
 from howfsc.util.math import ceil_even, ceil_odd
 from howfsc.util.mft import do_mft, do_imft, do_offcenter_mft
+from howfsc.util.remove_ptt import fit_and_remove_ptt_directly
+from howfsc.util.unwrap import unwrap_segments
 from howfsc.model.mask import (PupilMask, FocalPlaneMask, Epup, DMFace,
                                LyotStop, FieldStop)
 
@@ -200,6 +201,24 @@ class SingleLambda:
         self.dm2 = SimpleNamespace()
         self.nxfresnel_fast_jac = None
         self.fp_crop_list = None
+
+    def update_inorm(self, dmset_list=None):
+        """
+        Recompute the stored value of inorm.
+        
+        Keyword Arguments:
+         dmset_list: a list of DM settings, in voltage, currently applied to
+          the DMs, or ``None``.  The DM sizes and ordering must match
+          ``self.dmlist``.  If ``None``, then a uniform DM setting of 0 is
+          assumed.
+        
+        Returns:
+         nothing
+        """
+        self.inorm = self.get_inorm(dmset_list=dmset_list)
+
+        return None
+
 
     def get_jac_precomp(self, dmset_list):
         """
@@ -481,23 +500,26 @@ class SingleLambda:
         e0 = insertinto(e0, self.lyot.e.shape)
         return self.lyot.applymask(e0)
 
-    def proptodh(self, e0):
+    def proptodh(self, e0, normalize=True):
         """
         Propagate from the plane directly following the pupil plane to the
         final image plane, including the field stop
 
-        This function normalizes with ``inorm``.
+        This function normalizes with ``inorm`` if normalize == True.
 
         Arguments:
          e0: 2D complex array with electric field directly after the Lyot stop.
           Array should be the same size as the pupil.
 
+        Keyword Arguments:
+         normalize: boolean for whether to normalize the output by inorm.
+
         Returns:
          a 2D complex array of the same size as field stop
 
         """
-
         check.twoD_array(e0, 'e0', TypeError)
+        check.boolean(normalize, 'normalize', TypeError)
 
         # add tip/tilt at Lyot stop plane
         e0 = e0*self.ttph_down
@@ -506,8 +528,50 @@ class SingleLambda:
                     self.lyot.pixperpupil, direction=self.ft_dir)
         e0 = self.fs.applymask(e0)
 
-        return e0/np.sqrt(self.inorm)
+        if normalize:
+            e0 = e0/np.sqrt(self.inorm)
 
+        return e0
+    
+    def proptodhpeak(self, e0):
+        """
+        Propagate from the plane directly following the pupil plane to the
+        peak of the final image plane.
+         
+        Removes any piston/tip/tilt before propagating.
+
+        Does not include the field stop.
+
+        This function does not normalize with ``inorm``.
+
+        Arguments:
+         e0: 2D complex array with electric field directly after the Lyot stop.
+          Array should be the same size as the pupil.
+
+        Returns:
+         the complex scalar E-field at the center of the focal plane
+
+        """
+        check.twoD_array(e0, 'e0', TypeError)
+        
+        # Remove all piston/tip/tilt at Lyot stop plane
+        amp = np.abs(e0)
+        sw_mask = ampthresh(amp).astype(bool)
+        phase_to_fit = np.angle(e0)
+        phase_to_fit_unwrapped, _ = unwrap_segments(phase_to_fit, amp)
+        phase_no_ptt, ptt_fitted = fit_and_remove_ptt_directly(
+            phase_to_fit_unwrapped, sw_mask)
+
+        # Use ptt_fitted instead of phase_no_ptt because phase_no_ptt has
+        # phase values zeroed out at low amplitude areas, which throws off
+        # the accuracy of unit tests and cases when the amplitude isn't
+        # exactly zero behind a mask like in a phase retrieval.
+        e1 = e0 * np.exp(-1j*ptt_fitted)
+        epeakarray = do_mft(
+            e1, (1, 1), self.fs.pixperlod, self.lyot.pixperpupil,
+            direction=self.ft_dir)
+
+        return epeakarray[0, 0]
 
     def _fftsize(self, pupil, focal):
         """
@@ -1071,7 +1135,9 @@ class SingleLambda:
 
         e0 = self.proptodm(e0, dmset_list)
         e0 = self.proptolyot_nofpm(e0)
-        return np.abs(np.mean(e0))**2
+        e0 = self.proptodhpeak(e0)
+
+        return np.abs(e0)**2
 
     def get_dmind1d(self, dmn, j, k):
         """

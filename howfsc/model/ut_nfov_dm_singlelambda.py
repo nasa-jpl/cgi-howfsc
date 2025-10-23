@@ -732,6 +732,42 @@ class TestPropToDH(unittest.TestCase):
         pass
 
 
+class TestPropToDHPeak(unittest.TestCase):
+    """Unit test suite for proptodhpeak()."""
+
+    def setUp(self):
+        self.sl = cfg.sl_list[0]
+        pass
+
+    def test_e0_2darray(self):
+        """Verify MFT handles bad input."""
+        for perr in [np.ones((20,)), np.ones((10, 10, 10)), [], 'txt']:
+            with self.assertRaises(TypeError):
+                self.sl.proptodhpeak(e0=perr)
+
+    def test_output_size(self):
+        """Verify output is a scalar."""
+        e0 = self.sl.epup.e.copy()
+        e0[0, 0] = 0  # Can't have all ones pupil for ampthresh
+        out = self.sl.proptodhpeak(e0=e0)
+        self.assertTrue(np.isscalar(out))
+
+    def test_same_peak_as_full_array(self):
+        """Verify that the peak matches the value from full propagation."""
+        # Copy as we don't want to modify original
+        e0 = self.sl.epup.e.copy()
+        e0 = self.sl.proptodm(e0, self.sl.initmaps)
+        e0 = self.sl.proptolyot_nofpm(e0)
+
+        e_2d = self.sl.proptodh(e0, normalize=False)
+        i_2d_peak = np.abs(np.max(e_2d))**2
+
+        i_direct_peak = np.abs(self.sl.proptodhpeak(e0))**2
+
+        tol=1e-4
+        self.assertTrue(np.abs(i_2d_peak-i_direct_peak) < tol)
+
+
 class TestEProp(unittest.TestCase):
     """Unit test suite for eprop() (similar to pokeprop)."""
     def setUp(self):
@@ -1586,6 +1622,43 @@ class TestGetDmphList(unittest.TestCase):
         pass
 
 
+class TestUpdateInorm(unittest.TestCase):
+    """Unit test suite for update_inorm()."""
+    def setUp(self):
+        self.sl = cfg.sl_list[0]
+        rng = np.random.default_rng(5551212)
+        self.dm1 = 50 + rng.random(self.sl.initmaps[0].shape)
+        self.dm2 = 50 + rng.random(self.sl.initmaps[0].shape)
+
+    def test_inorm_same_value(self):
+        """Check inorm is same as from get_inorm."""
+
+        self.sl.update_inorm(dmset_list=[self.dm1, self.dm2])
+        inorm0a = self.sl.inorm.copy()
+        inorm0b = self.sl.get_inorm(dmset_list=[self.dm1, self.dm2])
+
+        inorm1a = self.sl.get_inorm(dmset_list=self.sl.initmaps)
+        self.sl.update_inorm(dmset_list=self.sl.initmaps)
+        inorm1b = self.sl.inorm.copy()
+
+        self.assertTrue(inorm0a == inorm0b)
+        self.assertTrue(inorm1a == inorm1b)
+
+    def test_inorm_updates(self):
+        """Check inorm changes with new DM settings."""
+        self.sl.update_inorm(dmset_list=self.sl.initmaps)
+        inorm0 = self.sl.inorm.copy()
+
+        self.sl.update_inorm(dmset_list=[self.dm1, self.dm2])
+        inorm1 = self.sl.inorm.copy()
+
+        self.sl.update_inorm(dmset_list=self.sl.initmaps)
+        inorm2 = self.sl.inorm.copy()
+
+        self.assertTrue(inorm2 == inorm0)
+        self.assertTrue(inorm1 != inorm0)
+
+
 class TestGetInorm(unittest.TestCase):
     """Unit test suite for get_inorm()."""
     def setUp(self):
@@ -1596,15 +1669,16 @@ class TestGetInorm(unittest.TestCase):
         """
         Check geometric throughput matches.
 
-        Without getting into DM shapes, inorm should be the sum of all
-        pupils stacked together
         """
-        tol = 1e-11
-
         inorm0 = self.sl.get_inorm(dmset_list=self.sl.initmaps)
-        inorm_stack = np.abs(np.mean(self.sl.epup.e*self.sl.pupil.e *
-                                     self.sl.lyot.e))**2
-        self.assertTrue(np.abs(inorm0 - inorm_stack) < tol)
+
+        # Get e-field directly from model for this DM setting
+        edm0 = self.sl.eprop(self.sl.initmaps)
+        ely = self.sl.proptolyot_nofpm(edm0)
+        edh0 = self.sl.proptodh(ely, normalize=False)
+        inorm_regular = np.max(np.abs(edh0)**2)
+        tol = 1e-4
+        self.assertTrue(np.abs(inorm0 - inorm_regular) < tol)
         pass
 
     def test_dmset_list_has_same_sizes_as_DMs_in_dmlist(self):
@@ -1659,9 +1733,9 @@ class TestGetInorm(unittest.TestCase):
         edm = self.sl.eprop(self.sl.initmaps)
         elyn = self.sl.proptolyot_nofpm(edm)
         edhf = self.sl.proptodh(elyn)
-
-        tol = 1e-13
-        self.assertTrue(np.abs(np.max(np.abs(edhf))-1.) < tol)
+        I00 = np.max(np.abs(edhf)**2)
+        tol = 5e-4
+        self.assertTrue(np.abs(I00-1) < tol)
         pass
 
     def test_tilt_does_not_change_inorm(self):

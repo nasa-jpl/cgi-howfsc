@@ -224,15 +224,15 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
      cfg: a CoronagraphMode object (i.e. optical model)
 
      jac: 3D real-valued DM Jacobian array, as produced by calcjacs().
-      Shape is 2 x ndm x npix.
+      Shape is 2 x (number of DM actuators) x npix.
 
      jtwj_map: a JTWJMap object which collects precalculated
       jac.T * diag(we0)**2 * jac matrices for all of the weighting matrices in
       the control strategy; each of these includes all fixed
       bad pixels and all per-pixel weighting, but does not include any bad
       pixels that vary (e.g. from cosmic ray flux).  Can use internal methods
-      to return an appropriate jtwj matrix, which should be a 2D ndm x ndm
-      array.
+      to return an appropriate jtwj matrix, which should be a 2D array with
+      dimensions (number of DM actuators) x (number of DM actuators).
 
      croplist: list of 4-tuples of (lower row, lower col,
       number of rows, number of columns), indicating where in a clean frame
@@ -534,6 +534,9 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
     for j in range(nlam):
         other[j] = dict()
         other[j]['lam'] = cfg.sl_list[j].lam
+
+        # Recompute the peak normalization factor
+        cfg.sl_list[j].update_inorm(dmset_list=dmlistmeas)
 
         intlist.append(np.zeros((ndm, nrow, ncol))) # int storage for whole lam
         log.info('Wavelength %d of %d', j+1, nlam)
@@ -865,7 +868,262 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
     )
 
 
+def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
+                    iteration, howfsc_method='cholesky'):
+    """
+    Execute EFC without probing using the compact model.
 
+    Perform the following tasks:
+     1. Compute the previous complex electric fields at each wavelength.
+     2. Compute previous mean total normalized intensity.
+     3. Compute control strategy parameters.
+     4. Compute change in DM settings from electric fields
+     5. Compute absolute DM settings.
+     6. Compute the new complex electric fields at each wavelength.
+     7. Compute new mean total normalized intensity
+
+    For reference in defined the below arguments, the number of CFAM filters
+    used is nlam, and the number of DM settings used is ndm.  ndm will be 1
+    since no probes are used.
+
+    Arguments:
+     dm1v: absolute DM1 setting. It is a 48x48 floating-point
+      array with absolute DM settings in volts. 
+
+     dm2v: absolute DM2 setting. It is a 48x48 floating-point
+      array with absolute DM settings in volts. 
+
+     cfg: a CoronagraphMode object (i.e. optical model)
+
+     jac: 3D real-valued DM Jacobian array, as produced by calcjacs().
+      Shape is 2 x (number of DM actuators) x npix.
+
+     jtwj_map: a JTWJMap object which collects precalculated
+      jac.T * diag(we0)**2 * jac matrices for all of the weighting matrices in
+      the control strategy; each of these includes all fixed
+      bad pixels and all per-pixel weighting, but does not include any bad
+      pixels that vary (e.g. from cosmic ray flux).  Can use internal methods
+      to return an appropriate jtwj matrix, which should be a 2D array with
+      dimensions (number of DM actuators) x (number of DM actuators).
+
+     cstrat: a ControlStrategy object; this will be used to define the behavior
+      of the wavefront control by setting the regularization, per-pixel
+      weighting, multiplicative gain, and next-iteration probe height.  It will
+      also contain information about fixed bad pixels.
+
+     croplist: list of 4-tuples of (lower row, lower col,
+      number of rows, number of columns), indicating where in a clean frame
+      each PSF is taken.  All are integers; the first two must be >= 0 and the
+      second two must be > 0.  This should have ndm*nlam elements, and elements
+      corresponding to the same wavelengths should have the same crop settings.
+      croplist data will be sourced from HOWFSC packets for ancillary GITL
+      info.
+
+     iteration: integer > 0 giving the number of the iteration which is about
+      to happen.  Iteration 0 is the setup which CGI is initialized with at
+      startup; iteration 1 is the first iteration calculated by HOWFSC GITL,
+      and the data collection for that iteration follows the first calculation.
+
+    Returns:
+     - An absolute DM setting for DM1
+     - An absolute DM setting for DM2
+     - The mean total contrast measured from the previous iteration (the one
+      which provided the input data)
+     - The mean total contrast computed for the next iteration based on the
+      absolute DM settings
+    - A datacube of the normalized intensity map at each lam.
+
+    """
+    #--------------
+    # Check inputs
+    #--------------
+
+    log.info('Begin input checks')
+
+    # iteration
+    check.positive_scalar_integer(iteration, 'iteration', TypeError)
+    log.info('Iteration number: %d', iteration)
+
+    # cfg first as we need it immediately
+    if not isinstance(cfg, CoronagraphMode):
+        raise TypeError('cfg must be a CoronagraphMode object')
+
+    nlam = len(cfg.sl_list)
+    ndm = 1
+
+    # dm1v
+    dm1nact = cfg.dmlist[0].registration['nact']
+    dm1v = check.twoD_array(dm1v, 'dm1v', TypeError)
+    if dm1v.shape != (dm1nact, dm1nact):
+        raise TypeError('Unexpected dm1v shape ' + str(dm1v.shape))
+
+    # dm2v
+    dm2nact = cfg.dmlist[1].registration['nact']
+    dm2v = check.twoD_array(dm2v, 'dm2v', TypeError)
+    if dm2v.shape != (dm2nact, dm2nact):
+        raise TypeError('Unexpected dm2v shape ' + str(dm2v.shape))
+
+    # jac + jtwj_map
+    check.threeD_array(jac, 'jac', TypeError) # axis 0 is real/imag
+    if not isinstance(jtwj_map, JTWJMap):
+        raise TypeError('jtwj_map must be a JTWJMap object')
+
+    if jac.shape[0] != 2:
+        raise TypeError('jac axis 0 must be length 2 (real/imag)')
+
+    allpix = np.sum([np.sum(sl.dh.e) for sl in cfg.sl_list])
+    if jac.shape[2] != allpix:
+        raise TypeError('jac and cfg have inconsistent number of dark-hole ' +
+                        'pixels: jac = ' + str(jac.shape[2]) + ', cfg = ' +
+                        str(allpix))
+
+    # croplist
+    try:
+        lencroplist = len(croplist)
+    except TypeError: # not iterable
+        raise TypeError('croplist must be an iterable') # reraise
+    for index, crop in enumerate(croplist):
+        if not isinstance(crop, tuple):
+            raise TypeError('croplist[' + str(index) + '] must be a tuple')
+        if len(crop) != 4:
+            raise TypeError('Each element of croplist must be a 4-tuple')
+        check.nonnegative_scalar_integer(crop[0], 'croplist[' +
+                                            str(index) + '][0]', TypeError)
+        check.nonnegative_scalar_integer(crop[1], 'croplist[' +
+                                            str(index) + '][1]', TypeError)
+        check.positive_scalar_integer(crop[2], 'croplist[' +
+                                        str(index) + '][2]', TypeError)
+        check.positive_scalar_integer(crop[3], 'croplist[' +
+                                        str(index) + '][3]', TypeError)
+
+    nrow = croplist[0][2] # array size
+    ncol = croplist[0][3]
+    for index, _ in enumerate(croplist):
+        if croplist[index][2] != nrow:
+            raise ValueError('Not all nrow values in incoming data are ' +
+                             'identical; suggests data corruption')
+        if croplist[index][3] != ncol:
+            raise ValueError('Not all ncol values in incoming data are ' +
+                             'identical; suggests data corruption')
+
+    subcroplist = [] # crop data should only vary with wavelength
+    for index, _ in enumerate(cfg.sl_list):
+        subcroplist.append(croplist[index*ndm])
+        for j in range(1, ndm): # no variation with DM setting
+            if croplist[index*ndm] != croplist[index*ndm + j]:
+                raise ValueError('Crop data not identical across DM ' +
+                                 'changes; suggests data corruption')
+
+    # cstrat
+    if not isinstance(cstrat, ControlStrategy):
+        raise TypeError('cstrat must be a ControlStrategy object')
+
+    log.info('Input checks complete')
+
+    #--------------------
+    # EFC Computation
+    #--------------------
+
+    dmlistmeas = [dm1v, dm2v]
+    tielist = [cfg.dmlist[0].dmvobj.tiemap, cfg.dmlist[1].dmvobj.tiemap]
+
+    dhlist = []
+    unprobedlist = [] # unprobed NI for contrast estimation
+    intlist = [] # NIs for estimation
+    for j in range(nlam):
+        intlist.append(np.zeros((ndm, nrow, ncol))) # int storage for whole lam
+    
+    for j in range(nlam):
+        dh = cfg.sl_list[j].dh.e
+        dhcrop = insertinto(dh, (nrow, ncol)).astype('bool')
+        if np.sum(dh) != np.sum(dhcrop):
+            log.warning('model dark hole size cropped to fit ' +
+                            'into GITL frame size')
+        dhlist.append(dhcrop)
+    
+    # this should match dhlist rather than sl_list (though they both should
+    # agree)
+    dh_cube = np.zeros((nlam, nrow, ncol))
+    ndhpix = np.cumsum([0]+[np.sum(dh) for dh in dhlist])
+    emeas_vec = np.zeros((ndhpix[-1],)).astype('complex128')
+    bpmeas = np.zeros((ndhpix[-1],)).astype('bool')
+    unprobedlist = []
+    n2clist = []
+
+    log.info('1. Compute the complex electric fields at each wavelength.')
+    for j in range(nlam):
+        log.info('Wavelength %d of %d', j+1, nlam)
+
+        # Recompute the peak normalization factor
+        cfg.sl_list[j].update_inorm(dmset_list=dmlistmeas)
+
+        # Get e-field directly from model for this DM setting
+        edm0 = cfg.sl_list[j].eprop(dmlistmeas)
+        ely = cfg.sl_list[j].proptolyot(edm0)
+        edh0 = cfg.sl_list[j].proptodh(ely)
+        emeas = insertinto(edh0, (nrow, ncol))
+        emeas_vec[ndhpix[j]:ndhpix[j+1]] = emeas[dhlist[j]]
+        im = np.abs(emeas)**2
+        unprobedlist.append(im)
+        n2clist.append(np.ones_like(im, dtype=float))
+
+    # 3. Evaluate mean total normalized intensity over control pixels 
+    log.info('2. Compute previous mean total normalized intensity.')
+    prev_c = eval_c(unprobedlist, dhlist, n2clist)
+    log.info('Previous NI = %g', prev_c)
+
+    # 5. Compute control strategy parameters
+    log.info('3. Compute control strategy parameters')
+    beta = cstrat.get_regularization(iteration, prev_c)
+    log.info('beta = %g', beta)
+    wdm = get_wdm(cfg, dmlistmeas, tielist)
+    we0 = get_we0(cfg, cstrat, subcroplist, iteration, prev_c)
+    dmmultgain = cstrat.get_dmmultgain(iteration, prev_c)
+    log.info('dmmultgain = %g', dmmultgain)
+    jtwj = jtwj_map.retrieve_jtwj(cstrat, iteration, prev_c)
+
+    # 6. Compute change in DM settings from electric fields
+    log.info('4. Compute change in DM settings from electric fields')
+    deltadm = jac_solve(jac, emeas_vec, beta, wdm, we0, bpmeas, jtwj, howfsc_method)
+    outdmlist = inv_to_dm(deltadm*dmmultgain, cfg, dmlistmeas)
+
+    log.info('5. Compute absolute DM settings with constraints applied')
+    abs_dm1 = cfg.dmlist[0].dmvobj.constrain_dm(outdmlist[0])
+    abs_dm1 = remove_subnormals(abs_dm1)
+    abs_dm2 = cfg.dmlist[1].dmvobj.constrain_dm(outdmlist[1])
+    abs_dm2 = remove_subnormals(abs_dm2) 
+
+
+    log.info('6. Compute the new complex electric fields at each wavelength.')
+    unprobedlist = []
+    for j in range(nlam):
+        log.info('Wavelength %d of %d', j+1, nlam)
+
+        # Recompute the peak normalization factor
+        cfg.sl_list[j].update_inorm(dmset_list=[abs_dm1, abs_dm2])
+
+        # Get e-field directly from model for this DM setting
+        edm0 = cfg.sl_list[j].eprop([abs_dm1, abs_dm2])
+        ely = cfg.sl_list[j].proptolyot(edm0)
+        edh0 = cfg.sl_list[j].proptodh(ely)
+        emeas = insertinto(edh0, (nrow, ncol))
+        im = np.abs(emeas)**2
+        dh_cube[j, :, :] = im
+        unprobedlist.append(im)
+    
+    log.info('7. Compute new mean total normalized intensity')
+    next_c = eval_c(unprobedlist, dhlist, n2clist)
+    log.info('Next NI = %g', next_c)
+
+    log.info('Return data tuple')
+    return (abs_dm1,
+            abs_dm2,
+            dh_cube,
+            next_c,
+            prev_c,
+            beta,
+            dmmultgain,
+    )
 
 
 if __name__ == "__main__":
