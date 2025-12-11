@@ -362,6 +362,7 @@ def create_cs_lists(fn, usefiles):
                     else:
                         localpath = os.path.dirname(os.path.abspath(fn))
                         elem['value'] = os.path.join(localpath, elem['value'])
+                        elem['value'] = os.path.normpath(elem['value'])
                         if not os.path.exists(elem['value']):
                             raise IOError('Relative path to ' +
                                                   'pixelweights file could ' +
