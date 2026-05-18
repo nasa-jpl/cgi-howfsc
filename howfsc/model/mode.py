@@ -41,7 +41,8 @@ class CoronagraphMode(object):
 
         # If validation succeeded, don't recheck it for errors
         y0 = loadyaml(cfgfile, custom_exception=IOError)
-        localpath = os.path.dirname(os.path.abspath(cfgfile))
+        localpath = os.path.dirname(os.path.abspath(
+            os.path.expandvars(cfgfile)))
 
         # Load DMs first
         dmkeylist = ['DM1', 'DM2']

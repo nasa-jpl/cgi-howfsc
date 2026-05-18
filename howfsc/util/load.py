@@ -6,6 +6,7 @@
 Functions to load data from FITS files and create complex-valued objects if
 necessary
 """
+import os
 
 import numpy as np
 import astropy.io.fits as pyfits
@@ -32,6 +33,8 @@ def load_ri(fnreal, fnimag):
      complex-valued ndarray (numpy type)
 
     """
+    fnreal = os.path.expandvars(fnreal)
+    fnimag = os.path.expandvars(fnimag)
 
     # FITS can only store real data, hence the two-file split
     maskreal = pyfits.getdata(fnreal)
@@ -69,6 +72,8 @@ def load_ap(fnamp, fnph):
      complex-valued ndarray (numpy type)
 
     """
+    fnamp = os.path.expandvars(fnamp)
+    fnph = os.path.expandvars(fnph)
 
     # FITS can only store real data, hence the two-file split
     maskamp = pyfits.getdata(fnamp)
@@ -101,6 +106,6 @@ def load(fn):
 
     """
 
-    mask = pyfits.getdata(fn)
+    mask = pyfits.getdata(os.path.expandvars(fn))
     check.twoD_array(mask, 'mask', TypeError)
     return mask

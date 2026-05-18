@@ -26,7 +26,7 @@ valid_method_list = ['mean', 'percentile']
 
 def get_next_c(cfg, dmlist, croplist, fixedbp, n2clist, destlist,
                cleanrow=1024, cleancol=1024, method='mean', percentile=50,
-               index_list=None):
+               index_list=None, fullframe=False):
     """
     Compute expected mean total contrast for next iteration, or optionally a
     a different metric (for use in selecting camera settings)
@@ -39,6 +39,12 @@ def get_next_c(cfg, dmlist, croplist, fixedbp, n2clist, destlist,
     which are not included in the fixed bad pixel map and which are not
     flagged as bad electric-field estimates in the measured data.  (Bad
     electric-field estimates will appear as NaNs in destlist.)
+
+    Note: when using this tool to compute the 'max', it is recommended to use
+    method=percentile with a high percentile value (e.g. 99) but not all the
+    way to 100th to avoid getting fooled by any outlier cosmic rays that might
+    escape earlier processing.  These will be read from the hconf file when
+    running this from GITL.
 
     Arguments:
      cfg: CoronagraphMode object
@@ -87,6 +93,11 @@ def get_next_c(cfg, dmlist, croplist, fixedbp, n2clist, destlist,
      index_list: list of integer indices, or None, indicating which of the
       wavelengths in cfg will be used for the calculation.  If None, all
       wavelengths will be used.
+     fullframe: Boolean.  If True, will use the entire cropped frame to do the
+      calculation instead constraining to the dark-hole region.  If False, will
+      use the dark hole only.  Either way, bad pixels are still ignored.
+      Defaults to False.  Expected use case is to get the bright pixel level in
+      the image associated with scale_bright for saturation prevention.
 
     Returns:
      a single scalar contrast value
@@ -187,6 +198,8 @@ def get_next_c(cfg, dmlist, croplist, fixedbp, n2clist, destlist,
                             'than the number of wavelengths in cfg')
         pass
 
+    check.boolean(fullframe, 'fullframe', TypeError)
+
     #----------------------
     # Contrast computation
     #----------------------
@@ -213,7 +226,10 @@ def get_next_c(cfg, dmlist, croplist, fixedbp, n2clist, destlist,
 
         # Put everything else in a crop-sized array
         edh_crop = insertinto(edh + destlist[index], (nrow, ncol))
-        dh_crop = insertinto(sl.dh.e, (nrow, ncol))
+        if fullframe:
+            dh_crop = np.ones((nrow, ncol), dtype=sl.dh.e.dtype)
+        else:
+            dh_crop = insertinto(sl.dh.e, (nrow, ncol))
         n2c = insertinto(n2clist[index], (nrow, ncol))
 
         # convert to NI

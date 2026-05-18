@@ -5,6 +5,7 @@
 """
 Utility function to write YAML files
 """
+import os
 
 import yaml
 
@@ -32,6 +33,8 @@ def writeyaml(outdict, path, custom_exception=Exception):
         raise TypeError('outdict must be a dict')
     if not isinstance(path, str):
         raise TypeError('path must be a str')
+
+    path = os.path.expandvars(path)
 
     # Load config from file
     try:

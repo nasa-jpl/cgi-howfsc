@@ -282,7 +282,8 @@ class TestRemoveSubnormals(unittest.TestCase):
         """Correct answer with negative zero, float32 edition"""
         nrow = 2
         ncol = 2
-        dneg = np.empty((nrow, ncol)).astype('float32')
+        # don't astype from float64 to avoid overflow (default is float64)
+        dneg = np.empty((nrow, ncol), dtype=np.float32)
         for j in range(nrow):
             for k in range(ncol):
                 dneg[j, k] = -0
@@ -299,7 +300,7 @@ class TestRemoveSubnormals(unittest.TestCase):
         """Correct answer with negative zero, float64 edition"""
         nrow = 2
         ncol = 2
-        dneg = np.empty((nrow, ncol)).astype('float64')
+        dneg = np.empty((nrow, ncol), dtype=np.float64)
         for j in range(nrow):
             for k in range(ncol):
                 dneg[j, k] = -0

@@ -353,6 +353,7 @@ def create_cs_lists(fn, usefiles):
                     raise CSException('pixelweights values must be strs')
 
                 if usefiles:
+                    elem['value'] = os.path.expandvars(elem['value'])
                     if os.path.isabs(elem['value']):
                         if not os.path.exists(elem['value']):
                             raise IOError('Absolute path to ' +
@@ -566,6 +567,7 @@ def create_cs_lists(fn, usefiles):
         raise CSException('fixedbp must be str')
 
     if usefiles:
+        csin['fixedbp'] = os.path.expandvars(csin['fixedbp'])
         if os.path.isabs(csin['fixedbp']):
             if not os.path.exists(csin['fixedbp']):
                 raise IOError('Absolute path to ' +

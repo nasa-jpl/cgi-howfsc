@@ -144,6 +144,29 @@ class TestGetNextC(unittest.TestCase):
         pass
 
 
+    def test_fullframe_defaults(self):
+        """Verify defaults work as documented"""
+        out0 = get_next_c(cfg=self.cfg,
+                          dmlist=self.dmlist,
+                          croplist=self.croplist,
+                          fixedbp=self.fixedbp,
+                          n2clist=self.n2clist,
+                          destlist=self.destlist,
+        )
+
+        out1 = get_next_c(cfg=self.cfg,
+                          dmlist=self.dmlist,
+                          croplist=self.croplist,
+                          fixedbp=self.fixedbp,
+                          n2clist=self.n2clist,
+                          destlist=self.destlist,
+                          fullframe=False,
+        )
+
+        self.assertTrue(out0 == out1)
+        pass
+
+
     def test_percentile_ignored_with_mean(self):
         """Verify percentile argument does not affect output when using mean"""
         out0 = get_next_c(cfg=self.cfg,
@@ -218,6 +241,62 @@ class TestGetNextC(unittest.TestCase):
                          destlist=self.destlist)
 
         self.assertTrue(np.max(np.abs(out - target)) < tol)
+
+        pass
+
+
+    @patch('howfsc.model.singlelambda.SingleLambda.proptodh')
+    def test_different_NI(self, mock_edh):
+        """
+        Verify that we get an exact result when expected
+
+        This is specifically checking that NI changes by NOT excluding
+        pixels outside the dark hole, by request
+
+        """
+        target = 1e-8
+        bright_target = 3.8
+        tol = 1e-13
+
+        edhlist = []
+        for index, sl in enumerate(cfg.sl_list):
+            edh = np.sqrt(target)*np.ones_like(sl.dh.e)
+
+            if index == 0:
+                r_in, c_in = np.where(sl.dh.e != 0)
+                r_out, c_out = np.where(sl.dh.e != 0)
+
+                # set bad values outside, NOT to be clipped by dh
+                edh[r_out, c_out] = np.sqrt(bright_target)
+
+                # set bad value inside, to be clipped by fixedbp
+                edh[r_in[0], c_in[0]] = 4.97
+
+                # set bad value inside, to be caught by nan in destlist
+                edh[r_in[1], c_in[1]] = 5.559
+                pass
+
+            edhlist.append(edh)
+            pass
+        mock_edh.side_effect = edhlist
+
+        tmp = np.zeros_like(self.cfg.sl_list[0].dh.e)
+        tmp[r_in[0], c_in[0]] = 1
+        fixedbp = insertinto(tmp, (1024, 1024)).astype('bool')
+
+        self.destlist[0][r_in[1], c_in[1]] = np.nan
+
+        out = get_next_c(cfg=self.cfg,
+                         dmlist=self.dmlist,
+                         croplist=self.croplist,
+                         fixedbp=fixedbp,
+                         n2clist=self.n2clist,
+                         destlist=self.destlist,
+                         method='percentile',
+                         percentile=100,
+                         fullframe=True)
+
+        self.assertTrue(np.max(np.abs(out - bright_target)) < tol)
 
         pass
 
@@ -464,7 +543,20 @@ class TestGetNextC(unittest.TestCase):
                        croplist=self.croplist,
                        fixedbp=allbad,
                        n2clist=self.n2clist,
-                       destlist=self.destlist)
+                       destlist=self.destlist,
+                       fullframe=False,
+            )
+            pass
+
+        with self.assertRaises(ZeroDivisionError):
+            get_next_c(cfg=self.cfg,
+                       dmlist=self.dmlist,
+                       croplist=self.croplist,
+                       fixedbp=allbad,
+                       n2clist=self.n2clist,
+                       destlist=self.destlist,
+                       fullframe=True,
+            )
             pass
         pass
 
@@ -816,6 +908,19 @@ class TestGetNextC(unittest.TestCase):
                 get_next_c(self.cfg, self.dmlist, self.croplist,
                            self.fixedbp, self.n2clist, self.destlist,
                            index_list=x)
+            pass
+        pass
+
+
+    def test_invalid_fullframe(self):
+        """Verify invalid inputs caught"""
+        xlist = [-1, 1.5, 'False', None, [2, 3]]
+
+        for x in xlist:
+            with self.assertRaises(TypeError):
+                get_next_c(self.cfg, self.dmlist, self.croplist,
+                           self.fixedbp, self.n2clist, self.destlist,
+                           fullframe=x)
             pass
         pass
 

@@ -13,7 +13,7 @@ import numpy as np
 
 from howfsc.model.mode import CoronagraphMode
 
-from .prop_tools import efield, open_efield, model_pm0, make_dmrel_probe
+from .prop_tools import efield, open_efield, model_pm0, make_dmrel_probe, make_dmrel_probe_gaussian
 
 cfgpath = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                '..', 'model', 'testdata', 'ut', 'ut_smalljac.yaml')
@@ -1009,6 +1009,355 @@ class TestMakeDMRelProbe(unittest.TestCase):
             )
         pass
 
+
+class TestMakeDMRelProbeGaussian(unittest.TestCase):
+    """
+    Tests for a function to make a HOWFSC Gaussian DM relative probe of a
+    desired amplitude
+    """
+
+    def setUp(self):
+        self.cfg = cfg
+        self.dmlist = self.cfg.initmaps
+        self.dact = 4
+        self.xcenter = 0
+        self.ycenter = 0
+        self.sigma = 1.0
+        self.target = 1e-5
+        self.lod_min = 0
+        self.lod_max = 1.2
+        self.ind = 0
+        self.maxiter = 5
+        self.verbose = False
+        pass
+
+
+    def test_success(self):
+        """Valid inputs complete as expected"""
+        dpv, probe_int, lod_mask, dm_surface, pupil_mask = \
+            make_dmrel_probe_gaussian(
+            cfg=self.cfg,
+            dmlist=self.dmlist,
+            xcenter=self.xcenter,
+            ycenter=self.ycenter,
+            sigma=self.sigma,
+            target=self.target,
+            lod_min=self.lod_min,
+            lod_max=self.lod_max,
+            ind=self.ind,
+            maxiter=self.maxiter,
+            verbose=self.verbose,
+        )
+
+        # Check outputs
+        sl = cfg.sl_list[self.ind]
+        self.assertTrue(dpv.shape == (cfg.dmlist[0].registration['nact'],
+                                      cfg.dmlist[0].registration['nact']))
+        self.assertTrue(probe_int.shape == sl.dh.e.shape)
+        self.assertTrue(lod_mask.shape == sl.dh.e.shape)
+        self.assertTrue(lod_mask.dtype == 'bool')
+        self.assertTrue(pupil_mask.shape == dm_surface.shape)
+        self.assertTrue(pupil_mask.shape[0] >= sl.epup.e.shape[0])
+        self.assertTrue(pupil_mask.shape[1] >= sl.epup.e.shape[1])
+        self.assertTrue(pupil_mask.shape[0] >= sl.pupil.e.shape[0])
+        self.assertTrue(pupil_mask.shape[1] >= sl.pupil.e.shape[1])
+        self.assertTrue(pupil_mask.shape[0] >= sl.lyot.e.shape[0])
+        self.assertTrue(pupil_mask.shape[1] >= sl.lyot.e.shape[1])
+        pass
+
+
+    def test_invalid_cfg(self):
+        """Invalid inputs fail as expected"""
+        perrlist = ['cfgfn', None, np.ones((5, 5)), 0]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=perr,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+
+    def test_invalid_dmlist(self):
+        """Invalid inputs fail as expected"""
+        perrlist = [
+            'cfgfn', None, np.ones((5, 5)), 0, # wrong outer type
+            [np.eye(4), np.eye(4), np.eye(4)], # wrong list length
+            [None, np.eye(4)], [np.eye(4), None], # wrong inner type
+            [np.eye(3), np.eye(4)], # wrong first size
+            [np.eye(4), np.eye(3)], # wrong second size
+        ]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=perr,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+
+    def test_invalid_rps(self):
+        """Invalid inputs fail as expected"""
+        # case: real positive scalar
+        perrlist = ['cfgfn', None, np.ones((5, 5)), 0, 1j, -1.5]
+
+        # target
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=perr,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+
+        # lod_max
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=perr,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+
+        # sigma
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=perr,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+    def test_invalid_rns(self):
+        """Invalid inputs fail as expected"""
+        # case: real nonnegative scalar
+        perrlist = ['cfgfn', None, np.ones((5, 5)), 1j, -1.5]
+
+        # lod_min
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=perr,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+
+    def test_invalid_psi(self):
+        """Invalid inputs fail as expected"""
+        # case: positive scalar integer
+        perrlist = ['cfgfn', None, np.ones((5, 5)), 0, 1j, -1.5, 1.5]
+
+        # maxiter
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=perr,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+
+    def test_invalid_nsi(self):
+        """Invalid inputs fail as expected"""
+        # case: non-negative scalar integer
+        perrlist = ['cfgfn', None, np.ones((5, 5)), 1j, -1.5, 1.5]
+
+        # ind
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=perr,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+
+    def test_invalid_rs(self):
+        """Invalid inputs fail as expected"""
+        # case: real scalar
+        perrlist = ['cfgfn', None, np.ones((5, 5)), 1j]
+
+        # xcenter
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=perr,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+
+        # ycenter
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=perr,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=self.verbose,
+                )
+            pass
+        pass
+
+
+    def test_invalid_bool(self):
+        """Invalid inputs fail as expected"""
+        # case: bool
+        perrlist = [None]
+
+        for perr in perrlist:
+            with self.assertRaises(TypeError):
+                make_dmrel_probe_gaussian(
+                    cfg=self.cfg,
+                    dmlist=self.dmlist,
+                    xcenter=self.xcenter,
+                    ycenter=self.ycenter,
+                    sigma=self.sigma,
+                    target=self.target,
+                    lod_min=self.lod_min,
+                    lod_max=self.lod_max,
+                    ind=self.ind,
+                    maxiter=self.maxiter,
+                    verbose=perr,
+                )
+            pass
+        pass
+
+
+    def test_invalid_ranges(self):
+        """Invalid inputs fail as expected"""
+
+        # lod_min/lod_max
+        with self.assertRaises(ValueError):
+            make_dmrel_probe_gaussian(
+                cfg=self.cfg,
+                dmlist=self.dmlist,
+                xcenter=self.xcenter,
+                ycenter=self.ycenter,
+                sigma=self.sigma,
+                target=self.target,
+                lod_min=self.lod_max, # same
+                lod_max=self.lod_max, # same
+                ind=self.ind,
+                maxiter=self.maxiter,
+                verbose=self.verbose,
+            )
+        pass
+
+
+    def test_ind_out_of_range(self):
+        """Invalid inputs fail as expected"""
+        with self.assertRaises(TypeError):
+            make_dmrel_probe_gaussian(
+                cfg=self.cfg,
+                dmlist=self.dmlist,
+                xcenter=self.xcenter,
+                ycenter=self.ycenter,
+                sigma=self.sigma,
+                target=self.target,
+                lod_min=self.lod_min,
+                lod_max=self.lod_max,
+                ind=len(self.cfg.sl_list),
+                maxiter=self.maxiter,
+                verbose=self.verbose,
+            )
+        pass
 
 
 
