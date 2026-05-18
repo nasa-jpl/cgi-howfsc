@@ -5,6 +5,7 @@
 """
 Utility functions to load YAML files
 """
+import os
 
 import yaml
 
@@ -25,6 +26,8 @@ def loadyaml(path, custom_exception=Exception):
      function.
 
     """
+
+    path = os.path.expandvars(path)
 
     # Load config from file
     try:

@@ -139,7 +139,10 @@ def dmhtoph(nrow, ncol, dmin, nact, inf_func, ppact_d, ppact_cx, ppact_cy, dx,
     arr0 = np.zeros(((nact - 1)*ppact_d + 1, (nact - 1)*ppact_d + 1))
     arr0[::ppact_d, ::ppact_d] = dmin
 
-    carr0 = scipy.signal.convolve(arr0, inf_func, mode='full')
+    # NOTE: cast to np.float64 to avoid failures from objects in versions of
+    # Scipy >= 1.17.0 (e.g. >f8 will not work)
+    carr0 = scipy.signal.convolve(arr0, inf_func.astype(np.float64),
+                                  mode='full')
     npix = carr0.shape[0] # (nact - 1)*ppact_d + N, conv of two squares is sq.
 
     # doing balanced, not FFT convention, for this side of interpolation so

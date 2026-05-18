@@ -212,12 +212,13 @@ class TestDEMetrics(unittest.TestCase):
 
     def test_datasame_only(self):
         """Check that expected calculations fail when data deltaE is 0"""
-        mdict = de_metrics(
-            meas_old=self.meas_old,
-            model_old=self.model_old,
-            meas_new=self.meas_old,
-            model_new=self.model_new,
-        )
+        with self.assertWarns(UserWarning):
+            mdict = de_metrics(
+                meas_old=self.meas_old,
+                model_old=self.model_old,
+                meas_new=self.meas_old,
+                model_new=self.model_new,
+            )
 
         self.assertTrue(mdict['CC'] is None)
         self.assertTrue(mdict['dE_rat'] is None)
@@ -229,12 +230,13 @@ class TestDEMetrics(unittest.TestCase):
 
     def test_modelsame_only(self):
         """Check that expected calculations fail when model deltaE is 0"""
-        mdict = de_metrics(
-            meas_old=self.meas_old,
-            model_old=self.model_old,
-            meas_new=self.meas_new,
-            model_new=self.model_old,
-        )
+        with self.assertWarns(UserWarning):
+            mdict = de_metrics(
+                meas_old=self.meas_old,
+                model_old=self.model_old,
+                meas_new=self.meas_new,
+                model_new=self.model_old,
+            )
 
         self.assertTrue(mdict['CC'] is None)
         self.assertTrue(mdict['dE_rat'] is not None)
@@ -249,12 +251,13 @@ class TestDEMetrics(unittest.TestCase):
         Check that expected calculations fail when data deltaE and model deltaE
         are both 0
         """
-        mdict = de_metrics(
-            meas_old=self.meas_old,
-            model_old=self.model_old,
-            meas_new=self.meas_old,
-            model_new=self.model_old,
-        )
+        with self.assertWarns(UserWarning):
+            mdict = de_metrics(
+                meas_old=self.meas_old,
+                model_old=self.model_old,
+                meas_new=self.meas_old,
+                model_new=self.model_old,
+            )
 
         self.assertTrue(mdict['CC'] is None)
         self.assertTrue(mdict['dE_rat'] is None)

@@ -776,8 +776,6 @@ class TestSine(unittest.TestCase):
         pass
 
 
-
-
 class TestGrid(unittest.TestCase):
     """
     Unit tests for function to generate a DM grid
@@ -1205,7 +1203,247 @@ class TestZernike(unittest.TestCase):
 
         pass
 
+class TestProbeGaussian(unittest.TestCase):
+    """
+    Unit tests for function to generate a Gaussian DM probe
+    """
+    def setUp(self):
+        """
+        Predefine OK parameters so we don't have to repeat them
+        """
+        self.nact = 48
+        self.xcenter = 0
+        self.ycenter = 0
+        self.sigma = 1.0
+        self.height = 100e-9
+        pass
 
+    # inputs
+    def test_success(self):
+        """
+        Run with valid inputs should not throw anything
+        """
+        from .dmshapes import probe_gaussian
+        probe_gaussian(nact=self.nact, xcenter=self.xcenter,
+                       ycenter=self.ycenter, sigma=self.sigma,
+                       height=self.height)
+        pass
+
+    def test_odd_success(self):
+        """
+        Odd-numbered actuator counts should not break anything, even though
+        they center on an actuator rather than on a gap
+        """
+        from .dmshapes import probe_gaussian
+        probe_gaussian(nact=self.nact+1, xcenter=self.xcenter,
+                       ycenter=self.ycenter, sigma=self.sigma,
+                       height=self.height)
+        pass
+
+    def test_nact_invalid(self):
+        """
+        Test bad parameter values fail as expected
+        """
+        from .dmshapes import probe_gaussian
+        for perr in [None, 'txt', 1j, [5], -1, -1.5, 1.5, 0]:
+            with self.assertRaises(TypeError):
+                probe_gaussian(nact=perr, xcenter=self.xcenter,
+                               ycenter=self.ycenter, sigma=self.sigma,
+                               height=self.height)
+                pass
+            pass
+        pass
+
+    def test_xcenter_invalid(self):
+        """
+        Test bad parameter values fail as expected
+        """
+        from .dmshapes import probe_gaussian
+        for perr in [None, 'txt', 1j, [5]]:
+            with self.assertRaises(TypeError):
+                probe_gaussian(nact=self.nact, xcenter=perr,
+                               ycenter=self.ycenter, sigma=self.sigma,
+                               height=self.height)
+                pass
+            pass
+        pass
+
+    def test_ycenter_invalid(self):
+        """
+        Test bad parameter values fail as expected
+        """
+        from .dmshapes import probe_gaussian
+        for perr in [None, 'txt', 1j, [5]]:
+            with self.assertRaises(TypeError):
+                probe_gaussian(nact=self.nact,
+                               xcenter=self.xcenter, ycenter=perr,
+                               sigma=self.sigma, height=self.height)
+                pass
+            pass
+        pass
+
+    def test_sigma_invalid(self):
+        """
+        Test bad parameter values fail as expected
+        """
+        from .dmshapes import probe_gaussian
+        for perr in [None, 'txt', 1j, [5], -1, -1.5, 0]:
+            with self.assertRaises(TypeError):
+                probe_gaussian(nact=self.nact,
+                               xcenter=self.xcenter, ycenter=self.ycenter,
+                               sigma=perr, height=self.height)
+                pass
+            pass
+        pass
+
+    def test_height_invalid(self):
+        """
+        Test bad parameter values fail as expected
+        """
+        from .dmshapes import probe_gaussian
+        for perr in [None, 'txt', 1j, [5], -1, -1.5, 0]:
+            with self.assertRaises(TypeError):
+                probe_gaussian(nact=self.nact,
+                               xcenter=self.xcenter, ycenter=self.ycenter,
+                               sigma=self.sigma, height=perr)
+                pass
+            pass
+        pass
+
+    # functionality
+    def test_output_size(self):
+        """Check output shape matches docs"""
+        from .dmshapes import probe_gaussian
+        ddm = probe_gaussian(nact=self.nact,
+                             xcenter=self.xcenter, ycenter=self.ycenter,
+                             sigma=self.sigma, height=self.height)
+        self.assertTrue(ddm.shape == (self.nact, self.nact))
+        pass
+
+    def test_peak_at_center(self):
+        """
+        When the probe is centered exactly on an actuator (xcenter=0.5,
+        ycenter=0.5 for even nact), the peak value should equal height and
+        occur at a single actuator.
+
+        For even nact with xcenter=ycenter=0, the nominal center falls in the
+        gap between the four central actuators.  Shifting by 0.5 act places
+        the center exactly on one actuator, giving an exact peak of height.
+        """
+        from .dmshapes import probe_gaussian
+        tol = 1e-13
+
+        ddm = probe_gaussian(nact=self.nact,
+                             xcenter=0.5, ycenter=0.5,
+                             sigma=self.sigma, height=self.height)
+
+        # Peak value should equal height
+        self.assertTrue(abs(np.max(ddm) - self.height) < tol)
+        # Peak should occur at exactly one location: row=nact//2, col=nact//2
+        peak_idx = np.unravel_index(np.argmax(ddm), ddm.shape)
+        self.assertTrue(peak_idx == (self.nact//2, self.nact//2))
+        pass
+
+    def test_height_scaling(self):
+        """
+        Output should scale linearly with height
+        """
+        from .dmshapes import probe_gaussian
+        tol = 1e-13
+
+        d1 = probe_gaussian(nact=self.nact,
+                            xcenter=self.xcenter, ycenter=self.ycenter,
+                            sigma=self.sigma, height=self.height)
+        d2 = probe_gaussian(nact=self.nact,
+                            xcenter=self.xcenter, ycenter=self.ycenter,
+                            sigma=self.sigma, height=self.height * 2)
+
+        self.assertTrue(np.max(np.abs(d2 - 2 * d1)) < tol)
+        pass
+
+    def test_symmetry(self):
+        """
+        A centered Gaussian (xcenter=ycenter=0) should be symmetric under
+        both row and column flips, since exp(-(xx^2+yy^2)/(2*sigma^2)) is
+        an even function in both axes
+        """
+        from .dmshapes import probe_gaussian
+        tol = 1e-13
+
+        ddm = probe_gaussian(nact=self.nact,
+                             xcenter=0, ycenter=0,
+                             sigma=self.sigma, height=self.height)
+
+        self.assertTrue(np.max(np.abs(ddm - np.flipud(ddm))) < tol)
+        self.assertTrue(np.max(np.abs(ddm - np.fliplr(ddm))) < tol)
+        pass
+
+    def test_xshift(self):
+        """
+        Verify xcenter shifts go in the correct direction (camx is cols):
+        incrementing xcenter by 1 should shift the pattern by 1 column
+        """
+        from .dmshapes import probe_gaussian
+        tol = 1e-13
+
+        x0 = probe_gaussian(nact=self.nact,
+                            xcenter=self.xcenter, ycenter=self.ycenter,
+                            sigma=self.sigma, height=self.height)
+        xs = probe_gaussian(nact=self.nact,
+                            xcenter=self.xcenter + 1, ycenter=self.ycenter,
+                            sigma=self.sigma, height=self.height)
+
+        xr = np.roll(x0, 1, 1)
+        self.assertTrue(np.max(np.abs(xr[:, 1:] - xs[:, 1:])) < tol)
+        pass
+
+    def test_yshift(self):
+        """
+        Verify ycenter shifts go in the correct direction (camy is rows):
+        incrementing ycenter by 1 should shift the pattern by 1 row
+        """
+        from .dmshapes import probe_gaussian
+        tol = 1e-13
+
+        y0 = probe_gaussian(nact=self.nact,
+                            xcenter=self.xcenter, ycenter=self.ycenter,
+                            sigma=self.sigma, height=self.height)
+        ys = probe_gaussian(nact=self.nact,
+                            xcenter=self.xcenter, ycenter=self.ycenter + 1,
+                            sigma=self.sigma, height=self.height)
+
+        yr = np.roll(y0, 1, 0)
+        self.assertTrue(np.max(np.abs(yr[1:, :] - ys[1:, :])) < tol)
+        pass
+
+    def test_sigma_broadening(self):
+        """
+        A larger sigma should produce a broader probe: at an off-center
+        location, the larger-sigma probe should have a higher amplitude
+        than the smaller-sigma probe
+        """
+        from .dmshapes import probe_gaussian
+
+        # Place center exactly on an actuator so comparison is clean
+        d_narrow = probe_gaussian(nact=self.nact,
+                                  xcenter=0.5, ycenter=0.5,
+                                  sigma=1.0, height=self.height)
+        d_wide = probe_gaussian(nact=self.nact,
+                                xcenter=0.5, ycenter=0.5,
+                                sigma=3.0, height=self.height)
+
+        # Both should peak at the same value (height), since exp(0) = 1
+        # regardless of sigma
+        peak_narrow = np.max(d_narrow)
+        peak_wide = np.max(d_wide)
+        self.assertAlmostEqual(peak_narrow, peak_wide)
+
+        # But away from center, the wider probe should have higher amplitude
+        # Use a pixel a few actuators away from center
+        r = self.nact // 2 + 3
+        c = self.nact // 2
+        self.assertTrue(d_wide[r, c] > d_narrow[r, c])
+        pass
 
 
 if __name__ == '__main__':

@@ -1033,6 +1033,7 @@ def _absrelpaths(path, filestr, fn):
     # file is located.  For example, a relative file path with no directory
     # prepended should be in the same directory as the YAML file itself.
 
+    path = os.path.expandvars(path)
     if os.path.isabs(path):
         if os.path.exists(path):
             return path

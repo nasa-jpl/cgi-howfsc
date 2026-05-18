@@ -595,14 +595,14 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
     # field maps
     log.info('4. Estimate complex electric fields and return fields ' +
                  'with bad electric field maps')
-    plist = [] # for model-based phase storage, chunked by lam
+    # for model-based phase storage, chunked by lam
+    plist = [np.zeros((nprobepair, nrow, ncol)) for _ in range(nlam)]
     for n in range(nprobepair):
         log.info('Probe pair %d of %d', n+1, nprobepair)
         # Extract phases from model
         # element zero is unprobed, not used here
         # data collection will do plus then minus
         for j in range(nlam):
-            plist.append(np.zeros((nprobepair, nrow, ncol)))
             log.info('Wavelength %d of %d', j+1, nlam)
             log.info('Get probe phase from model and DM settings')
             _, tmpph = probe_ap(cfg,
@@ -749,7 +749,7 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
         # around.  (Which would violate the ordering conventions elsewhere, so
         # low risk, but want to put in text so we don't forget.)
 
-        # Pick the brightest pixel from the projected next dark hole
+        # Pick the mean level from the projected next dark hole
         scale = get_next_c(cfg,
                            [abs_dm1, abs_dm2],
                            subcroplist,
@@ -763,7 +763,8 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
                            index_list=[index]
         )
 
-        # Pick the brightest pixel from the projected next dark hole
+        # Pick the brightest pixel from the projected next full frame, in case
+        # the wings are bright
         scale_bright = get_next_c(cfg,
                                   [abs_dm1, abs_dm2],
                                   subcroplist,
@@ -775,7 +776,9 @@ def _main_howfsc_computation(framelist, dm1_list, dm2_list, cfg, jac, jtwj_map,
                                   method=hconf['excam']['scale_bright_method'],
                                   percentile=\
                                     hconf['excam']['scale_bright_percentile'],
-                                  index_list=[index]
+                                  index_list=[index],
+                                  fullframe=True,
+
         )
 
         # 1 unprobed first
@@ -888,10 +891,10 @@ def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
 
     Arguments:
      dm1v: absolute DM1 setting. It is a 48x48 floating-point
-      array with absolute DM settings in volts. 
+      array with absolute DM settings in volts.
 
      dm2v: absolute DM2 setting. It is a 48x48 floating-point
-      array with absolute DM settings in volts. 
+      array with absolute DM settings in volts.
 
      cfg: a CoronagraphMode object (i.e. optical model)
 
@@ -1032,7 +1035,7 @@ def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
     intlist = [] # NIs for estimation
     for j in range(nlam):
         intlist.append(np.zeros((ndm, nrow, ncol))) # int storage for whole lam
-    
+
     for j in range(nlam):
         dh = cfg.sl_list[j].dh.e
         dhcrop = insertinto(dh, (nrow, ncol)).astype('bool')
@@ -1040,7 +1043,7 @@ def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
             log.warning('model dark hole size cropped to fit ' +
                             'into GITL frame size')
         dhlist.append(dhcrop)
-    
+
     # this should match dhlist rather than sl_list (though they both should
     # agree)
     dh_cube = np.zeros((nlam, nrow, ncol))
@@ -1067,7 +1070,7 @@ def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
         unprobedlist.append(im)
         n2clist.append(np.ones_like(im, dtype=float))
 
-    # 3. Evaluate mean total normalized intensity over control pixels 
+    # 3. Evaluate mean total normalized intensity over control pixels
     log.info('2. Compute previous mean total normalized intensity.')
     prev_c = eval_c(unprobedlist, dhlist, n2clist)
     log.info('Previous NI = %g', prev_c)
@@ -1091,7 +1094,7 @@ def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
     abs_dm1 = cfg.dmlist[0].dmvobj.constrain_dm(outdmlist[0])
     abs_dm1 = remove_subnormals(abs_dm1)
     abs_dm2 = cfg.dmlist[1].dmvobj.constrain_dm(outdmlist[1])
-    abs_dm2 = remove_subnormals(abs_dm2) 
+    abs_dm2 = remove_subnormals(abs_dm2)
 
 
     log.info('6. Compute the new complex electric fields at each wavelength.')
@@ -1110,7 +1113,7 @@ def efc_computation(dm1v, dm2v, cfg, jac, jtwj_map, cstrat, croplist,
         im = np.abs(emeas)**2
         dh_cube[j, :, :] = im
         unprobedlist.append(im)
-    
+
     log.info('7. Compute new mean total normalized intensity')
     next_c = eval_c(unprobedlist, dhlist, n2clist)
     log.info('Next NI = %g', next_c)

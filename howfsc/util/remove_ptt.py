@@ -3,9 +3,7 @@
 # Any commercial use must be negotiated with the Office of Technology Transfer
 # at the California Institute of Technology.
 """Functions to remove piston, tip, and tilt from a beam."""
-import os
 
-from astropy.io import fits
 import numpy as np
 
 from . import check

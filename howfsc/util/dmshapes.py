@@ -255,3 +255,47 @@ def zernike(nact, dact, zernsize, order):
                            np.arange(nact)-(nact-1.)/2.)
     ddm = zernsize*nollzernikes.xyzern(xx, yy, dact/2., [order])
     return ddm[0] # xyzern returns 3D array
+
+
+def probe_gaussian(nact, xcenter, ycenter, sigma, height):
+    """
+    Create a Gaussian probe.
+
+    Nominal DM centration with even-numbered DM counts places the center of the
+     DM (and thus the center of the probe pattern) at the gap between the two
+     central actuators in both axes.  The centers of the adjacent actuators are
+     at (+/- 0.5 act, +/- 0.5 act).
+
+    The Gaussian pattern has a peak amplitude set as "height".
+
+    Arguments:
+     nact: number of actuators along one side of the DM (assumes square DM)
+     xcenter: number of actuators to move the center of the DM pattern along
+      the positive x-axis, as seen from the camera.  Negative and fractional
+      inputs are acceptable.
+     ycenter: number of actuators to move the center of the DM pattern along
+      the positive y-axis, as seen from the camera.  Negative and fractional
+      inputs are acceptable.
+     sigma: width of Gaussian probe, in actuators.  > 0.
+     height: height of Gaussian peak, in meters; actual shape may not reach
+      this value depending on centration
+
+    Returns:
+     a nact x nact 2D array of heights in meters for each actuator
+    """
+
+    # Check inputs
+    check.positive_scalar_integer(nact, 'nact', TypeError)
+    check.real_scalar(xcenter, 'xcenter', TypeError)
+    check.real_scalar(ycenter, 'ycenter', TypeError)
+    check.real_positive_scalar(sigma, 'sigma', TypeError)
+    check.real_positive_scalar(height, 'height', TypeError)
+
+    # Set up grids with translation
+    xx, yy = np.meshgrid(np.arange(nact)-(nact-1.)/2.-xcenter,
+                           np.arange(nact)-(nact-1.)/2.-ycenter)
+
+    ddm = height * np.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+
+    return ddm
+

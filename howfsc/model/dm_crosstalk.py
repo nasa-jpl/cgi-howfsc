@@ -5,6 +5,8 @@
 """
 class library for creating and applying DM crosstalk
 """
+import os
+
 import numpy as np
 import yaml
 import scipy.sparse as sparse
@@ -315,7 +317,7 @@ class CDMCrosstalk:
             })
 
         # write list of dict to yaml
-        with open(yaml_fn, 'wt') as fid:
+        with open(os.path.expandvars(yaml_fn), 'wt') as fid:
             yaml.safe_dump_all(list_Yaml, fid)
 
 
@@ -343,7 +345,7 @@ class CDMCrosstalk:
         """
 
         try:
-            with open(yaml_fn, 'rt') as fid:
+            with open(os.path.expandvars(yaml_fn), 'rt') as fid:
                 # gen_obj is a generator,
                 gen_obj = yaml.safe_load_all(fid)
 
@@ -637,7 +639,7 @@ def dm_crosstalk(xtalk_fits, xtalk_yaml, yaml_save_fn=DEFAULT_YAML_SAVE):
     # and is validated there.
 
     # read parameter from yaml
-    with open(xtalk_yaml, 'rt') as fid:
+    with open(os.path.expandvars(xtalk_yaml), 'rt') as fid:
         # params is a dict
         params = yaml.safe_load(fid)
 
